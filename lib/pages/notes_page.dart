@@ -29,6 +29,7 @@ class _NotesPageState extends State<NotesPage> {
   List<NoteModel> notes = [];
   List<CategoryModel> categories = [];
   String? selectedCategoryId;
+  bool showArchived = false;
   int _loadRequest = 0;
 
   bool get hasActiveFilters =>
@@ -66,6 +67,7 @@ class _NotesPageState extends State<NotesPage> {
         userId: user.uid,
         searchTerm: searchController.text,
         categoryId: selectedCategoryId,
+        isArchived: showArchived,
       );
 
       if (mounted && request == _loadRequest) {
@@ -123,7 +125,47 @@ class _NotesPageState extends State<NotesPage> {
     }
   }
 
+  Future<bool> _confirmAction({
+    required String title,
+    required String message,
+    required String confirmLabel,
+    bool isDestructive = false,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: isDestructive
+                ? TextButton.styleFrom(
+                    foregroundColor: Theme.of(dialogContext).colorScheme.error,
+                  )
+                : null,
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+
+    return confirmed ?? false;
+  }
+
   Future<void> deleteNote(String id) async {
+    final confirmed = await _confirmAction(
+      title: 'Excluir nota',
+      message: 'Tem certeza de que deseja excluir esta nota permanentemente?',
+      confirmLabel: 'Excluir',
+      isDestructive: true,
+    );
+    if (!confirmed || !mounted) return;
+
     try {
       await repository.markAsDeleted(id);
       await loadNotes();
@@ -143,6 +185,51 @@ class _NotesPageState extends State<NotesPage> {
     }
 
     await syncNotes();
+  }
+
+  Future<void> toggleArchive(NoteModel note) async {
+    final archiving = !note.isArchived;
+    final confirmed = await _confirmAction(
+      title: archiving ? 'Arquivar nota' : 'Restaurar nota',
+      message: archiving
+          ? 'Deseja mover esta nota para as notas arquivadas?'
+          : 'Deseja restaurar esta nota para a lista principal?',
+      confirmLabel: archiving ? 'Arquivar' : 'Restaurar',
+    );
+    if (!confirmed || !mounted) return;
+
+    try {
+      await repository.update(
+        note.copyWith(
+          isArchived: archiving,
+          updatedAt: DateTime.now(),
+          syncStatus: SyncStatus.pendingUpload,
+        ),
+      );
+      await loadNotes();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(archiving ? 'Nota arquivada.' : 'Nota restaurada.'),
+          ),
+        );
+      }
+    } catch (error, stackTrace) {
+      _handleFailure(
+        'Falha ao alterar arquivamento',
+        'Não foi possível alterar o arquivamento da nota.',
+        error,
+        stackTrace,
+      );
+      return;
+    }
+
+    await syncNotes();
+  }
+
+  void toggleArchivedView() {
+    showArchived = !showArchived;
+    loadNotes();
   }
 
   void _handleFailure(
@@ -200,10 +287,19 @@ class _NotesPageState extends State<NotesPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          "Minhas notas",
+          showArchived ? "Notas arquivadas" : "Minhas notas",
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(
+            tooltip: showArchived ? "Ver notas ativas" : "Ver notas arquivadas",
+            onPressed: toggleArchivedView,
+            icon: Icon(
+              showArchived
+                  ? Icons.sticky_note_2_outlined
+                  : Icons.archive_outlined,
+            ),
+          ),
           IconButton(
             tooltip: "Sair",
             onPressed: logout,
@@ -296,6 +392,8 @@ class _NotesPageState extends State<NotesPage> {
                         child: Icon(
                           hasActiveFilters
                               ? Icons.search_off_rounded
+                              : showArchived
+                              ? Icons.archive_outlined
                               : Icons.sticky_note_2_rounded,
                           color: Color(0xff6c4ab6),
                         ),
@@ -304,12 +402,16 @@ class _NotesPageState extends State<NotesPage> {
                       Text(
                         hasActiveFilters
                             ? 'Nenhuma nota encontrada'
+                            : showArchived
+                            ? 'Nenhuma nota arquivada'
                             : 'Nenhuma nota ainda',
                       ),
                       SizedBox(height: 8),
                       Text(
                         hasActiveFilters
                             ? 'Ajuste a busca ou a categoria selecionada.'
+                            : showArchived
+                            ? 'Arquive notas para vê-las aqui.'
                             : 'Crie sua primeira nota.',
                       ),
                       if (hasActiveFilters)
@@ -332,6 +434,7 @@ class _NotesPageState extends State<NotesPage> {
                       note: note,
                       categoryName: categoryNameOf(note.categoryId),
                       onTap: () => openEditNote(note),
+                      onArchive: () => toggleArchive(note),
                       onDelete: () => deleteNote(note.id),
                     );
                   },

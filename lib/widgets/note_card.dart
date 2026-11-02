@@ -6,6 +6,7 @@ class NoteCard extends StatelessWidget {
   final NoteModel note;
   final String? categoryName;
   final VoidCallback onTap;
+  final VoidCallback onArchive;
   final VoidCallback onDelete;
 
   const NoteCard({
@@ -13,6 +14,7 @@ class NoteCard extends StatelessWidget {
     required this.note,
     this.categoryName,
     required this.onTap,
+    required this.onArchive,
     required this.onDelete,
   });
 
@@ -125,6 +127,18 @@ class NoteCard extends StatelessWidget {
               ),
 
               IconButton(
+                tooltip: note.isArchived ? 'Restaurar' : 'Arquivar',
+                onPressed: onArchive,
+                icon: Icon(
+                  note.isArchived
+                      ? Icons.unarchive_outlined
+                      : Icons.archive_outlined,
+                  color: const Color(0xFF6C4AB6),
+                ),
+              ),
+
+              IconButton(
+                tooltip: 'Excluir',
                 onPressed: onDelete,
                 icon: const Icon(
                   Icons.delete_outline_rounded,

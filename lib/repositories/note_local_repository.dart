@@ -83,6 +83,19 @@ class NoteLocalRepository {
     return query(userId: userId);
   }
 
+  Future<bool> hasPendingChanges(String userId) async {
+    final db = await _databaseHelper.database;
+    final rows = await db.query(
+      DatabaseHelper.notesTable,
+      columns: ['id'],
+      where: 'user_id = ? AND sync_status != ?',
+      whereArgs: [userId, SyncStatus.synced.name],
+      limit: 1,
+    );
+
+    return rows.isNotEmpty;
+  }
+
   /// Notas com [SyncStatus.pendingDelete] só são retornadas quando
   /// [syncStatus] é informado explicitamente.
   Future<List<NoteModel>> query({

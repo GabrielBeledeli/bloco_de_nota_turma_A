@@ -1,6 +1,5 @@
 import 'package:bloco_de_nota_turma_a/services/auth_service.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -94,7 +93,7 @@ class _RegisterPageState extends State<RegisterPage> {
             SizedBox(height: 10),
             Text(
               "Crie sua conta para começar",
-              style: TextStyle(color: Color(0xff777717f)),
+              style: TextStyle(color: Color(0xFF77717F)),
             ),
             SizedBox(height: 35),
             Text(
@@ -176,7 +175,10 @@ class _RegisterPageState extends State<RegisterPage> {
               onPressed: loading ? null : register,
               child: loading
                   ? CircularProgressIndicator(color: Colors.white)
-                  : Text("Criar minha conta", style: TextStyle(fontWeight: FontWeight.bold),)
+                  : Text(
+                      "Criar minha conta",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
             ),
           ],
         ),

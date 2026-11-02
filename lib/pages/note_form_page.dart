@@ -127,19 +127,17 @@ class _NoteFormPageState extends State<NoteFormPage> {
   }
 
   Future<void> saveNote() async {
-    // Pegamos o usuário atualmente autenticado.
     final user = FirebaseAuth.instance.currentUser;
-
-    // Sem usuário não podemos salvar.
     if (user == null) return;
 
-    // Pegamos os valores digitados.
     final title = titleController.text.trim();
-
     final content = contentController.text.trim();
-
-    // Verificamos se existe conteúdo.
     if (content.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Digite o conteúdo da nota antes de salvar.'),
+        ),
+      );
       return;
     }
 
@@ -174,8 +172,6 @@ class _NoteFormPageState extends State<NoteFormPage> {
       return;
     }
 
-    // Depois de salvar,
-    // voltamos para a tela anterior.
     if (mounted) {
       Navigator.pop(context);
     }

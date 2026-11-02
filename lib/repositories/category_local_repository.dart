@@ -103,5 +103,17 @@ class CategoryLocalRepository {
       whereArgs: [category.id, category.updatedAt.millisecondsSinceEpoch],
     );
   }
-}
 
+  Future<bool> hasPendingChanges(String userId) async {
+    final db = await _databaseHelper.database;
+    final rows = await db.query(
+      DatabaseHelper.categoriesTable,
+      columns: ['id'],
+      where: 'user_id = ? AND sync_status != ?',
+      whereArgs: [userId, SyncStatus.synced.name],
+      limit: 1,
+    );
+
+    return rows.isNotEmpty;
+  }
+}

@@ -14,6 +14,11 @@ class RemoteNoteService {
     return _firestore.collection('users').doc(userId).collection('notes');
   }
 
+  Future<void> resetConnection() async {
+    await _firestore.disableNetwork();
+    await _firestore.enableNetwork();
+  }
+
   Future<void> upsert(NoteModel note) {
     return _notes(
       note.userId,
@@ -31,7 +36,7 @@ class RemoteNoteService {
         .timeout(_timeout);
 
     final data = snapshot.data();
-    return data == null ? null : _fromDocument(snapshot.id, data);
+    return data == null ? null : _fromDocument(snapshot.id, userId, data);
   }
 
   Future<List<NoteModel>> getAll(String userId) async {
@@ -40,7 +45,7 @@ class RemoteNoteService {
     ).get(const GetOptions(source: Source.server)).timeout(_timeout);
 
     return snapshot.docs
-        .map((doc) => _fromDocument(doc.id, doc.data()))
+        .map((doc) => _fromDocument(doc.id, userId, doc.data()))
         .toList();
   }
 
@@ -56,15 +61,20 @@ class RemoteNoteService {
     };
   }
 
-  NoteModel _fromDocument(String id, Map<String, dynamic> data) {
+  NoteModel _fromDocument(
+    String id,
+    String fallbackUserId,
+    Map<String, dynamic> data,
+  ) {
+    final now = DateTime.now();
     return NoteModel(
       id: id,
-      title: data['title'] as String,
-      content: data['content'] as String,
+      title: data['title'] as String? ?? '',
+      content: data['content'] as String? ?? '',
       categoryId: data['categoryId'] as String?,
-      userId: data['userId'] as String,
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
-      updatedAt: (data['updatedAt'] as Timestamp).toDate(),
+      userId: data['userId'] as String? ?? fallbackUserId,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? now,
+      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? now,
       syncStatus: SyncStatus.synced,
       isArchived: data['isArchived'] as bool? ?? false,
     );

@@ -115,12 +115,33 @@ class NoteCard extends StatelessWidget {
                       const SizedBox(height: 8),
                     ],
 
-                    Text(
-                      _formatDate(note.updatedAt),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF9A94A1),
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          _formatDate(note.updatedAt),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF9A94A1),
+                          ),
+                        ),
+                        if (note.syncStatus != SyncStatus.synced) ...[
+                          const SizedBox(width: 8),
+                          const Icon(
+                            Icons.cloud_upload_outlined,
+                            size: 13,
+                            color: Color(0xFFB26A00),
+                          ),
+                          const SizedBox(width: 3),
+                          const Text(
+                            'Pendente',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFFB26A00),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),

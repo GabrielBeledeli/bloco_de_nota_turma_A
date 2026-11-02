@@ -32,17 +32,17 @@ class RemoteCategoryService {
       userId,
     ).get(const GetOptions(source: Source.server)).timeout(_timeout);
 
+    final now = DateTime.now();
     return snapshot.docs.map((doc) {
       final data = doc.data();
       return CategoryModel(
         id: doc.id,
-        name: data['name'] as String,
-        userId: data['userId'] as String,
-        createdAt: (data['createdAt'] as Timestamp).toDate(),
-        updatedAt: (data['updatedAt'] as Timestamp).toDate(),
+        name: data['name'] as String? ?? '',
+        userId: data['userId'] as String? ?? userId,
+        createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? now,
+        updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? now,
         syncStatus: SyncStatus.synced,
       );
     }).toList();
   }
 }
-

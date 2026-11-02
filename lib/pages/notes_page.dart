@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:bloco_de_nota_turma_a/models/category_model.dart';
@@ -19,7 +20,7 @@ class NotesPage extends StatefulWidget {
   State<NotesPage> createState() => _NotesPageState();
 }
 
-class _NotesPageState extends State<NotesPage> {
+class _NotesPageState extends State<NotesPage> with WidgetsBindingObserver {
   final NoteLocalRepository repository = NoteLocalRepository();
   final CategoryLocalRepository categoryRepository = CategoryLocalRepository();
   final SyncService syncService = SyncService();
@@ -30,7 +31,10 @@ class _NotesPageState extends State<NotesPage> {
   List<CategoryModel> categories = [];
   String? selectedCategoryId;
   bool showArchived = false;
+  bool isSyncing = false;
+  bool hasPendingSync = false;
   int _loadRequest = 0;
+  Timer? _pendingRetryTimer;
 
   bool get hasActiveFilters =>
       selectedCategoryId != null || searchController.text.trim().isNotEmpty;
@@ -46,13 +50,28 @@ class _NotesPageState extends State<NotesPage> {
   @override
   void initState() {
     super.initState();
-    loadNotes().then((_) => syncNotes());
+    WidgetsBinding.instance.addObserver(this);
+    _initializePage();
+  }
+
+  Future<void> _initializePage() async {
+    await loadNotes();
+    await syncNotes();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pendingRetryTimer?.cancel();
     searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      syncNotes(showOfflineSnackBar: false);
+    }
   }
 
   Future<void> loadNotes() async {
@@ -69,12 +88,15 @@ class _NotesPageState extends State<NotesPage> {
         categoryId: selectedCategoryId,
         isArchived: showArchived,
       );
+      final pending = await syncService.hasPendingChanges(user.uid);
 
       if (mounted && request == _loadRequest) {
         setState(() {
           categories = loadedCategories;
           notes = result;
+          hasPendingSync = pending;
         });
+        _configurePendingRetryTimer(pending);
       }
     } catch (error, stackTrace) {
       _handleFailure(
@@ -83,6 +105,18 @@ class _NotesPageState extends State<NotesPage> {
         error,
         stackTrace,
       );
+    }
+  }
+
+  void _configurePendingRetryTimer(bool shouldRun) {
+    if (shouldRun) {
+      _pendingRetryTimer ??= Timer.periodic(
+        const Duration(seconds: 15),
+        (_) => syncNotes(showOfflineSnackBar: false),
+      );
+    } else {
+      _pendingRetryTimer?.cancel();
+      _pendingRetryTimer = null;
     }
   }
 
@@ -97,31 +131,64 @@ class _NotesPageState extends State<NotesPage> {
     loadNotes();
   }
 
-  Future<void> syncNotes() async {
+  Future<void> syncNotes({
+    bool isManual = false,
+    bool showOfflineSnackBar = true,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    try {
-      final result = await syncService.sync(user.uid);
+    if (mounted) {
+      setState(() => isSyncing = true);
+    }
 
-      if (result == SyncResult.completed) {
+    try {
+      final report = await syncService.sync(user.uid);
+
+      if (report.state == SyncState.completed || report.pushedCount > 0) {
         await loadNotes();
-      } else if (result == SyncResult.offline && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Sem conexão. As alterações serão sincronizadas depois.',
-            ),
-          ),
-        );
+      } else {
+        final pending = await syncService.hasPendingChanges(user.uid);
+        if (mounted) {
+          setState(() => hasPendingSync = pending);
+          _configurePendingRetryTimer(pending);
+        }
+      }
+
+      if (!mounted) return;
+
+      switch (report.state) {
+        case SyncState.completed:
+          if (isManual) {
+            final message = report.pushedCount > 0
+                ? 'Sincronização concluída (${report.pushedCount} pendência(s) enviada(s)).'
+                : 'Sincronização concluída.';
+            _showFeedback(message);
+          } else if (!showOfflineSnackBar && report.pushedCount > 0) {
+            _showFeedback('Conexão restabelecida: alterações sincronizadas.');
+          }
+        case SyncState.offline:
+          if (isManual || showOfflineSnackBar) {
+            _showFeedback(
+              'Sem conexão. As alterações serão sincronizadas quando a rede voltar.',
+            );
+          }
+        case SyncState.failed:
+          _showFeedback(
+            'Falha ao sincronizar: ${report.errorMessage ?? 'erro desconhecido'}',
+          );
       }
     } catch (error, stackTrace) {
       _handleFailure(
         'Falha na sincronização',
-        'Não foi possível sincronizar as notas.',
+        'Falha ao sincronizar: $error',
         error,
         stackTrace,
       );
+    } finally {
+      if (mounted) {
+        setState(() => isSyncing = syncService.isSyncing);
+      }
     }
   }
 
@@ -170,9 +237,7 @@ class _NotesPageState extends State<NotesPage> {
       await repository.markAsDeleted(id);
       await loadNotes();
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Nota deletada com sucesso!")));
+        _showFeedback('Nota deletada com sucesso!');
       }
     } catch (error, stackTrace) {
       _handleFailure(
@@ -208,11 +273,7 @@ class _NotesPageState extends State<NotesPage> {
       );
       await loadNotes();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(archiving ? 'Nota arquivada.' : 'Nota restaurada.'),
-          ),
-        );
+        _showFeedback(archiving ? 'Nota arquivada.' : 'Nota restaurada.');
       }
     } catch (error, stackTrace) {
       _handleFailure(
@@ -232,6 +293,13 @@ class _NotesPageState extends State<NotesPage> {
     loadNotes();
   }
 
+  void _showFeedback(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   void _handleFailure(
     String logMessage,
     String feedback,
@@ -244,11 +312,7 @@ class _NotesPageState extends State<NotesPage> {
       error: error,
       stackTrace: stackTrace,
     );
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(feedback)));
-    }
+    _showFeedback(feedback);
   }
 
   Future<void> logout() async {
@@ -256,7 +320,7 @@ class _NotesPageState extends State<NotesPage> {
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => LoginPage()),
+      MaterialPageRoute(builder: (_) => const LoginPage()),
       (route) => false,
     );
   }
@@ -274,7 +338,7 @@ class _NotesPageState extends State<NotesPage> {
   Future<void> openNewNote() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => NoteFormPage()),
+      MaterialPageRoute(builder: (_) => const NoteFormPage()),
     );
 
     await loadNotes();
@@ -287,12 +351,29 @@ class _NotesPageState extends State<NotesPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          showArchived ? "Notas arquivadas" : "Minhas notas",
-          style: TextStyle(fontWeight: FontWeight.bold),
+          showArchived ? 'Notas arquivadas' : 'Minhas notas',
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
           IconButton(
-            tooltip: showArchived ? "Ver notas ativas" : "Ver notas arquivadas",
+            tooltip: hasPendingSync
+                ? 'Sincronizar pendências'
+                : 'Sincronizar agora',
+            onPressed: isSyncing ? null : () => syncNotes(isManual: true),
+            icon: isSyncing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                : Icon(
+                    hasPendingSync
+                        ? Icons.cloud_upload_outlined
+                        : Icons.sync_rounded,
+                  ),
+          ),
+          IconButton(
+            tooltip: showArchived ? 'Ver notas ativas' : 'Ver notas arquivadas',
             onPressed: toggleArchivedView,
             icon: Icon(
               showArchived
@@ -301,30 +382,33 @@ class _NotesPageState extends State<NotesPage> {
             ),
           ),
           IconButton(
-            tooltip: "Sair",
+            tooltip: 'Sair',
             onPressed: logout,
-            icon: Icon(Icons.logout_rounded),
+            icon: const Icon(Icons.logout_rounded),
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: openNewNote,
-        backgroundColor: Color(0xff6c4ab6),
+        backgroundColor: const Color(0xff6c4ab6),
         foregroundColor: Colors.white,
-        icon: Icon(Icons.add_rounded),
-        label: Text("Nova Nota", style: TextStyle(fontWeight: FontWeight.bold)),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text(
+          'Nova Nota',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
       body: Padding(
-        padding: EdgeInsets.fromLTRB(20, 10, 20, 90),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 90),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              user?.email ?? "",
-              style: TextStyle(color: Color(0xFF77717f), fontSize: 13),
+              user?.email ?? '',
+              style: const TextStyle(color: Color(0xFF77717f), fontSize: 13),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             TextField(
               controller: searchController,
               onChanged: (_) {
@@ -333,12 +417,12 @@ class _NotesPageState extends State<NotesPage> {
               },
               decoration: InputDecoration(
                 hintText: 'Buscar por título ou conteúdo',
-                prefixIcon: Icon(Icons.search_rounded),
+                prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searchController.text.isEmpty
                     ? null
                     : IconButton(
                         tooltip: 'Limpar busca',
-                        icon: Icon(Icons.close_rounded),
+                        icon: const Icon(Icons.close_rounded),
                         onPressed: () {
                           searchController.clear();
                           setState(() {});
@@ -347,23 +431,23 @@ class _NotesPageState extends State<NotesPage> {
                       ),
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             SizedBox(
               height: 40,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
                   Padding(
-                    padding: EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text('Todas'),
+                      label: const Text('Todas'),
                       selected: selectedCategoryId == null,
                       onSelected: (_) => selectCategory(null),
                     ),
                   ),
                   for (final category in categories)
                     Padding(
-                      padding: EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.only(right: 8),
                       child: ChoiceChip(
                         label: Text(category.name),
                         selected: selectedCategoryId == category.id,
@@ -374,72 +458,82 @@ class _NotesPageState extends State<NotesPage> {
                 ],
               ),
             ),
-            SizedBox(height: 12),
-            if (notes.isEmpty)
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
+            const SizedBox(height: 12),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => syncNotes(isManual: true),
+                child: notes.isEmpty
+                    ? LayoutBuilder(
+                        builder: (context, constraints) => SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: constraints.maxHeight,
+                            ),
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    width: 100,
+                                    height: 100,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xffede5fa),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      hasActiveFilters
+                                          ? Icons.search_off_rounded
+                                          : showArchived
+                                          ? Icons.archive_outlined
+                                          : Icons.sticky_note_2_rounded,
+                                      color: const Color(0xff6c4ab6),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 25),
+                                  Text(
+                                    hasActiveFilters
+                                        ? 'Nenhuma nota encontrada'
+                                        : showArchived
+                                        ? 'Nenhuma nota arquivada'
+                                        : 'Nenhuma nota ainda',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    hasActiveFilters
+                                        ? 'Ajuste a busca ou a categoria selecionada.'
+                                        : showArchived
+                                        ? 'Arquive notas para vê-las aqui.'
+                                        : 'Crie sua primeira nota.',
+                                  ),
+                                  if (hasActiveFilters)
+                                    TextButton(
+                                      onPressed: clearFilters,
+                                      child: const Text('Limpar filtros'),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: notes.length,
+                        itemBuilder: (context, index) {
+                          final note = notes[index];
 
-                        decoration: BoxDecoration(
-                          color: Color(0xffede5fa),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          hasActiveFilters
-                              ? Icons.search_off_rounded
-                              : showArchived
-                              ? Icons.archive_outlined
-                              : Icons.sticky_note_2_rounded,
-                          color: Color(0xff6c4ab6),
-                        ),
+                          return NoteCard(
+                            note: note,
+                            categoryName: categoryNameOf(note.categoryId),
+                            onTap: () => openEditNote(note),
+                            onArchive: () => toggleArchive(note),
+                            onDelete: () => deleteNote(note.id),
+                          );
+                        },
                       ),
-                      SizedBox(height: 25),
-                      Text(
-                        hasActiveFilters
-                            ? 'Nenhuma nota encontrada'
-                            : showArchived
-                            ? 'Nenhuma nota arquivada'
-                            : 'Nenhuma nota ainda',
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        hasActiveFilters
-                            ? 'Ajuste a busca ou a categoria selecionada.'
-                            : showArchived
-                            ? 'Arquive notas para vê-las aqui.'
-                            : 'Crie sua primeira nota.',
-                      ),
-                      if (hasActiveFilters)
-                        TextButton(
-                          onPressed: clearFilters,
-                          child: Text('Limpar filtros'),
-                        ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Expanded(
-                child: ListView.builder(
-                  itemCount: notes.length,
-                  itemBuilder: (context, index) {
-                    final note = notes[index];
-
-                    return NoteCard(
-                      note: note,
-                      categoryName: categoryNameOf(note.categoryId),
-                      onTap: () => openEditNote(note),
-                      onArchive: () => toggleArchive(note),
-                      onDelete: () => deleteNote(note.id),
-                    );
-                  },
-                ),
               ),
+            ),
           ],
         ),
       ),

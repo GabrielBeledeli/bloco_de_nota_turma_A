@@ -1,4 +1,4 @@
-package com.example.bloco_de_nota_turma_a
+package com.example.bloco_de_notas
 
 import io.flutter.embedding.android.FlutterActivity
 

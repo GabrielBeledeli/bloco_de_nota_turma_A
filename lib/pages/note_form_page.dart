@@ -3,8 +3,11 @@ import 'dart:developer' as developer;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../models/category_model.dart';
 import '../models/note_model.dart';
+import '../repositories/category_local_repository.dart';
 import '../repositories/note_local_repository.dart';
+import '../widgets/category_name_dialog.dart';
 
 class NoteFormPage extends StatefulWidget {
   final NoteModel? note;
@@ -22,6 +25,12 @@ class _NoteFormPageState extends State<NoteFormPage> {
 
   final repository = NoteLocalRepository();
 
+  final categoryRepository = CategoryLocalRepository();
+
+  List<CategoryModel> categories = [];
+
+  String? selectedCategoryId;
+
   bool get isEditing => widget.note != null;
 
   @override
@@ -32,6 +41,88 @@ class _NoteFormPageState extends State<NoteFormPage> {
       titleController.text = widget.note!.title;
 
       contentController.text = widget.note!.content;
+
+      selectedCategoryId = widget.note!.categoryId;
+    }
+
+    loadCategories();
+  }
+
+  Future<void> loadCategories() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      await categoryRepository.ensureDefaults(user.uid);
+      final result = await categoryRepository.getAll(user.uid);
+
+      if (mounted) {
+        setState(() {
+          categories = result;
+        });
+      }
+    } catch (error, stackTrace) {
+      _reportFailure(
+        'Falha ao carregar categorias',
+        'Não foi possível carregar as categorias.',
+        error,
+        stackTrace,
+      );
+    }
+  }
+
+  Future<void> createCategory() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const CategoryNameDialog(),
+    );
+    if (name == null || name.isEmpty) return;
+
+    final existing = categories.where(
+      (category) => category.name.toLowerCase() == name.toLowerCase(),
+    );
+    if (existing.isNotEmpty) {
+      setState(() => selectedCategoryId = existing.first.id);
+      return;
+    }
+
+    try {
+      final category = CategoryModel.create(userId: user.uid, name: name);
+      await categoryRepository.insert(category);
+      await loadCategories();
+
+      if (mounted) {
+        setState(() => selectedCategoryId = category.id);
+      }
+    } catch (error, stackTrace) {
+      _reportFailure(
+        'Falha ao criar categoria',
+        'Não foi possível criar a categoria.',
+        error,
+        stackTrace,
+      );
+    }
+  }
+
+  void _reportFailure(
+    String logMessage,
+    String feedback,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    developer.log(
+      logMessage,
+      name: 'NoteFormPage',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(feedback)));
     }
   }
 
@@ -58,27 +149,28 @@ class _NoteFormPageState extends State<NoteFormPage> {
           widget.note!.copyWith(
             title: title,
             content: content,
+            categoryId: () => selectedCategoryId,
             updatedAt: DateTime.now(),
             syncStatus: SyncStatus.pendingUpload,
           ),
         );
       } else {
         await repository.insert(
-          NoteModel.create(userId: user.uid, title: title, content: content),
+          NoteModel.create(
+            userId: user.uid,
+            title: title,
+            content: content,
+            categoryId: selectedCategoryId,
+          ),
         );
       }
     } catch (error, stackTrace) {
-      developer.log(
+      _reportFailure(
         'Falha ao salvar nota',
-        name: 'NoteFormPage',
-        error: error,
-        stackTrace: stackTrace,
+        'Não foi possível salvar a nota.',
+        error,
+        stackTrace,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível salvar a nota.')),
-        );
-      }
       return;
     }
 
@@ -139,6 +231,33 @@ class _NoteFormPageState extends State<NoteFormPage> {
             ),
 
             const Divider(color: Color(0xFFE4DFEA)),
+
+            SizedBox(
+              height: 48,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final category in categories)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(category.name),
+                        selected: selectedCategoryId == category.id,
+                        onSelected: (selected) => setState(
+                          () => selectedCategoryId = selected
+                              ? category.id
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ActionChip(
+                    avatar: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text('Nova categoria'),
+                    onPressed: createCategory,
+                  ),
+                ],
+              ),
+            ),
 
             Expanded(
               child: TextField(

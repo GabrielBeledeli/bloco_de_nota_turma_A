@@ -1,1 +1,24 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"blocodenotasturmaa","appId":"1:917005993637:android:93d6c01000c35761d0af4c","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"blocodenotasturmaa","configurations":{"android":"1:917005993637:android:93d6c01000c35761d0af4c","ios":"1:917005993637:ios:fdac2f5cae22016bd0af4c","web":"1:917005993637:web:17da01cb3f1d22abd0af4c"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "bd-bloco-notas",
+          "appId": "1:1064898258076:android:1bfee39fd274c776283959",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "bd-bloco-notas",
+          "configurations": {
+            "android": "1:1064898258076:android:1bfee39fd274c776283959"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

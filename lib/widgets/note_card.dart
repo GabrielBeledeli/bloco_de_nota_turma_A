@@ -4,12 +4,14 @@ import '../models/note_model.dart';
 
 class NoteCard extends StatelessWidget {
   final NoteModel note;
+  final String? categoryName;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
   const NoteCard({
     super.key,
     required this.note,
+    this.categoryName,
     required this.onTap,
     required this.onDelete,
   });
@@ -88,6 +90,28 @@ class NoteCard extends StatelessWidget {
                     ),
 
                     const SizedBox(height: 8),
+
+                    if (categoryName != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEDE5FA),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          categoryName!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF6C4AB6),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
 
                     Text(
                       _formatDate(note.updatedAt),

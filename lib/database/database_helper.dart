@@ -3,8 +3,9 @@ import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
   static const notesTable = 'notes';
+  static const categoriesTable = 'categories';
   static const _databaseName = 'notes.db';
-  static const _databaseVersion = 2;
+  static const _databaseVersion = 3;
 
   static final DatabaseHelper instance = DatabaseHelper._init();
 
@@ -24,11 +25,30 @@ class DatabaseHelper {
       path,
       version: _databaseVersion,
       onCreate: _createSchema,
-      onUpgrade: _recreateSchema,
+      onUpgrade: _upgradeSchema,
     );
   }
 
   Future<void> _createSchema(Database db, int version) async {
+    await _createNotesTable(db);
+    await _createCategoriesTable(db);
+  }
+
+  Future<void> _upgradeSchema(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 2) {
+      await db.execute('DROP TABLE IF EXISTS $notesTable');
+      await _createNotesTable(db);
+    }
+    if (oldVersion < 3) {
+      await _createCategoriesTable(db);
+    }
+  }
+
+  Future<void> _createNotesTable(Database db) async {
     await db.execute('''
       CREATE TABLE $notesTable(
         id TEXT PRIMARY KEY,
@@ -53,12 +73,22 @@ class DatabaseHelper {
     );
   }
 
-  Future<void> _recreateSchema(
-    Database db,
-    int oldVersion,
-    int newVersion,
-  ) async {
-    await db.execute('DROP TABLE IF EXISTS $notesTable');
-    await _createSchema(db, newVersion);
+  Future<void> _createCategoriesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE $categoriesTable(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        sync_status TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_categories_user ON $categoriesTable(user_id)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_categories_sync_status ON $categoriesTable(sync_status)',
+    );
   }
 }

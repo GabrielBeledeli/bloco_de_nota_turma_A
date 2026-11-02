@@ -1,4 +1,4 @@
-import 'dart:math';
+import '../utils/id_generator.dart';
 
 enum SyncStatus { synced, pendingUpload, pendingDelete }
 
@@ -34,7 +34,7 @@ class NoteModel {
     final now = DateTime.now();
 
     return NoteModel(
-      id: _generateId(now),
+      id: generateId(now),
       title: title,
       content: content,
       userId: userId,
@@ -92,12 +92,4 @@ class NoteModel {
       isArchived: isArchived ?? this.isArchived,
     );
   }
-
-  static String _generateId(DateTime moment) {
-    final timestamp = moment.microsecondsSinceEpoch.toRadixString(36);
-    final suffix = Random.secure().nextInt(1 << 32).toRadixString(36);
-
-    return '$timestamp$suffix';
-  }
 }
-

@@ -28,6 +28,36 @@ class NoteLocalRepository {
     );
   }
 
+  Future<void> upsert(NoteModel note) async {
+    final db = await _databaseHelper.database;
+    await db.insert(
+      DatabaseHelper.notesTable,
+      note.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<int> markAsDeleted(String id) async {
+    final db = await _databaseHelper.database;
+    return db.update(
+      DatabaseHelper.notesTable,
+      {'sync_status': SyncStatus.pendingDelete.name},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Só marca como sincronizada se a nota não foi editada durante o envio.
+  Future<int> markAsSynced(NoteModel note) async {
+    final db = await _databaseHelper.database;
+    return db.update(
+      DatabaseHelper.notesTable,
+      {'sync_status': SyncStatus.synced.name},
+      where: 'id = ? AND updated_at = ?',
+      whereArgs: [note.id, note.updatedAt.millisecondsSinceEpoch],
+    );
+  }
+
   Future<int> delete(String id) async {
     final db = await _databaseHelper.database;
     return db.delete(
@@ -86,8 +116,9 @@ class NoteLocalRepository {
 
     final term = searchTerm?.trim();
     if (term != null && term.isNotEmpty) {
-      clauses.add('(title LIKE ? OR content LIKE ?)');
-      args.addAll(['%$term%', '%$term%']);
+      final pattern = '%${_escapeLike(term)}%';
+      clauses.add(r"(title LIKE ? ESCAPE '\' OR content LIKE ? ESCAPE '\')");
+      args.addAll([pattern, pattern]);
     }
 
     final rows = await db.query(
@@ -99,5 +130,8 @@ class NoteLocalRepository {
 
     return rows.map(NoteModel.fromMap).toList();
   }
-}
 
+  String _escapeLike(String term) {
+    return term.replaceAllMapped(RegExp(r'[\\%_]'), (match) => '\\${match[0]}');
+  }
+}

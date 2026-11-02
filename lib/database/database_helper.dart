@@ -1,8 +1,11 @@
-import 'package:bloco_de_nota_turma_a/models/note.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
+  static const notesTable = 'notes';
+  static const _databaseName = 'notes.db';
+  static const _databaseVersion = 2;
+
   static final DatabaseHelper instance = DatabaseHelper._init();
 
   static Database? _database;
@@ -10,77 +13,52 @@ class DatabaseHelper {
   DatabaseHelper._init();
 
   Future<Database> get database async {
-    if (_database != null) {
-      return _database!;
-    } else {
-      _database = await _initDB('notes.db');
-
-      return _database!;
-    }
+    return _database ??= await _openDatabase();
   }
 
-  Future<Database> _initDB(String fileName) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, fileName);
+  Future<Database> _openDatabase() async {
+    final databasesPath = await getDatabasesPath();
+    final path = join(databasesPath, _databaseName);
 
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return openDatabase(
+      path,
+      version: _databaseVersion,
+      onCreate: _createSchema,
+      onUpgrade: _recreateSchema,
+    );
   }
 
-  Future<void> _createDB(Database db, int version) async {
+  Future<void> _createSchema(Database db, int version) async {
     await db.execute('''
-        CREATE TABLE notes(
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          uid TEXT NOT NULL,
-          title TEXT NOT NULL,
-          content TEXT NOT NULL,
-          date TEXT NOT NULL,
-        
-        )
-      ''');
-  }
-
-  Future<int> insertNote(Note note) async {
-    final db = await instance.database;
-
-    return await db.insert('notes', note.toMap());
-  }
-
-  Future<List<Note>> getNotes(String uid) async {
-    final db = await instance.database;
-
-    final result = await db.query(
-      "notes",
-
-      where: "uid = ?",
-
-      whereArgs: [uid],
-
-      orderBy: "id DESC",
+      CREATE TABLE $notesTable(
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        category_id TEXT,
+        user_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        sync_status TEXT NOT NULL,
+        is_archived INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_notes_user_updated ON $notesTable(user_id, updated_at DESC)',
     );
-
-    return result.map((map) => Note.fromMap(map)).toList();
-  }
-
-  Future<int> updateNote(Note note) async {
-    final db = await instance.database;
-
-    return await db.update(
-      'notes',
-      note.toMap(),
-
-      where: "id = ?",
-
-      whereArgs: [note.id],
+    await db.execute(
+      'CREATE INDEX idx_notes_category ON $notesTable(category_id)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_notes_sync_status ON $notesTable(sync_status)',
     );
   }
 
-  Future<int> deleteNote(int id) async{
-    final db = await instance.database;
-
-    return await db.delete(
-      'notes',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+  Future<void> _recreateSchema(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    await db.execute('DROP TABLE IF EXISTS $notesTable');
+    await _createSchema(db, newVersion);
   }
 }

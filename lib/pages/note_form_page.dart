@@ -1,11 +1,13 @@
+import 'dart:developer' as developer;
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../database/database_helper.dart';
-import '../models/note.dart';
+import '../models/note_model.dart';
+import '../repositories/note_local_repository.dart';
 
 class NoteFormPage extends StatefulWidget {
-  final Note? note;
+  final NoteModel? note;
 
   const NoteFormPage({super.key, this.note});
 
@@ -18,7 +20,7 @@ class _NoteFormPageState extends State<NoteFormPage> {
 
   final contentController = TextEditingController();
 
-  final database = DatabaseHelper.instance;
+  final repository = NoteLocalRepository();
 
   bool get isEditing => widget.note != null;
 
@@ -50,40 +52,34 @@ class _NoteFormPageState extends State<NoteFormPage> {
       return;
     }
 
-    // Criamos a data da alteração.
-    final now = DateTime.now();
-
-    final date =
-        '${now.day.toString().padLeft(2, '0')}/'
-        '${now.month.toString().padLeft(2, '0')}/'
-        '${now.year} '
-        '${now.hour.toString().padLeft(2, '0')}:'
-        '${now.minute.toString().padLeft(2, '0')}';
-
-    // Criamos um objeto Note.
-    //
-    // Se estamos editando:
-    //     widget.note?.id
-    // mantém o ID existente.
-    //
-    // Se estamos criando:
-    //     o ID será null.
-    final note = Note(
-      id: widget.note?.id,
-      uid: user.uid,
-      title: title,
-      content: content,
-      date: date,
-    );
-
-    // Verificamos se estamos criando
-    // ou editando uma nota.
-    if (isEditing) {
-      // UPDATE
-      await database.updateNote(note);
-    } else {
-      // INSERT
-      await database.insertNote(note);
+    try {
+      if (isEditing) {
+        await repository.update(
+          widget.note!.copyWith(
+            title: title,
+            content: content,
+            updatedAt: DateTime.now(),
+            syncStatus: SyncStatus.pendingUpload,
+          ),
+        );
+      } else {
+        await repository.insert(
+          NoteModel.create(userId: user.uid, title: title, content: content),
+        );
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'Falha ao salvar nota',
+        name: 'NoteFormPage',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível salvar a nota.')),
+        );
+      }
+      return;
     }
 
     // Depois de salvar,
